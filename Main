@@ -1,0 +1,1731 @@
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+
+local requestFunc = (syn and syn.request) or (http and http.request) or request
+if not requestFunc then
+    warn("Your executor does not support HTTP requests.")
+    return
+end
+
+local player = Players.LocalPlayer
+local userid = player.UserId
+local username = player.Name
+
+
+local Library = loadstring(game:HttpGetAsync("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/bigbeanscripts/Pet-Warriors/refs/heads/main/test"))()
+local InterfaceManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/SenhorLDS/ProjectLDSHUB/refs/heads/main/Anti%20AFK"))()
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+local function formatNumber(num)
+    local absNum = math.abs(num)
+    local formatted
+
+    if absNum >= 1e27 then
+        formatted = string.format("%.2fOc", num / 1e27)
+    elseif absNum >= 1e24 then
+        formatted = string.format("%.2fSp", num / 1e24)
+    elseif absNum >= 1e21 then
+        formatted = string.format("%.2fSx", num / 1e21)
+    elseif absNum >= 1e18 then
+        formatted = string.format("%.2fQn", num / 1e18)
+    elseif absNum >= 1e15 then
+        formatted = string.format("%.2fQd", num / 1e15)
+    elseif absNum >= 1e12 then
+        formatted = string.format("%.2fT", num / 1e12)
+    elseif absNum >= 1e9 then
+        formatted = string.format("%.2fB", num / 1e9)
+    elseif absNum >= 1e6 then
+        formatted = string.format("%.2fM", num / 1e6)
+    elseif absNum >= 1e3 then
+        formatted = string.format("%.2fK", num / 1e3)
+    else
+        formatted = tostring(num)
+    end
+
+    -- Remove all trailing zeros and unnecessary decimal point
+    formatted = formatted:gsub("(%d)%.?0+([KMBTQdQnSxSpOc])", "%1%2")
+    formatted = formatted:gsub("%.([KMBTQdQnSxSpOc])", "%1") -- extra safeguard
+    return formatted
+end
+
+
+
+local Window, Tabs
+local BuildUI
+
+BuildUI = function()
+
+    local AutoClickSection = Tabs.Main:AddSection("Auto Click")
+
+    local autoClickEnabled = false
+    AutoClickSection:AddToggle("AutoClick", {
+        Title = "Auto Click (OP)",
+        Default = false,
+        Callback = function(Value)
+            autoClickEnabled = Value
+            if Value then
+                task.spawn(function()
+                    local Network = require(ReplicatedStorage.Modules.Network)
+                    while autoClickEnabled do
+                        Network:FireServer("Tap", true)
+                        task.wait()
+                    end
+                end)
+            end
+        end
+    })
+
+    local RebirthSection = Tabs.Main:AddSection("Rebirths")
+
+    local selectedRebirthIndex = "Max Unlocked"
+    local rebirthDropdown
+    local rebirthOptions = {}
+    local isMaxUnlockedSelected = true
+    local autoRebirthRunning = false
+    local autoRebirthThread = nil
+    local dropdownUpdateThread = nil
+    
+    local Replication = require(ReplicatedStorage.Game.Replication)
+    local Rebirths = require(ReplicatedStorage.Game.Rebirths)
+    local Network = require(ReplicatedStorage.Modules.Network)
+
+    -- This function gets only the rebirths the player owns
+    local function getAllRebirthOptions()
+        local options = {}
+        pcall(function()
+            repeat task.wait() until Replication.Loaded and Replication.Data
+            
+            local maxOptions = Replication.Data.RebirthOptions or 0
+            
+            for i = 1, maxOptions do
+                local amount = Rebirths:fromIndex(i)
+                if amount then
+                    local price = Rebirths:getPrice(amount)
+                    table.insert(options, {
+                        index = i,
+                        amount = amount,
+                        price = price,
+                        display = string.format("+%s Rebirths", tostring(amount))
+                    })
+                end
+            end
+        end)
+        return options
+    end
+
+    -- Get the best rebirth the player can AFFORD from what they own
+    GetBestAffordableRebirth = function()
+        local success, result = pcall(function()
+            repeat task.wait() until Replication.Loaded and Replication.Data
+            
+            local currentRebirths = Replication.Data.Statistics.Rebirths or 0
+            local clicks = Replication.Data.Statistics.Clicks or 0
+
+
+            local bestIndex = nil
+            local bestAmount = 0
+
+            for _, option in ipairs(rebirthOptions) do
+                local clicksNeeded = Rebirths:ClicksPrice(option.price, currentRebirths)
+                
+
+                if clicks >= clicksNeeded and option.amount > bestAmount then
+                    bestAmount = option.amount
+                    bestIndex = option.index
+                end
+            end
+            
+            if bestIndex then
+            end
+            
+            return bestIndex
+        end)
+
+        if not success then
+        end
+
+        return success and result or nil
+    end
+
+    -- Get max unlocked rebirth (highest index the player owns)
+    GetMaxUnlockedRebirth = function()
+        local success, result = pcall(function()
+            repeat task.wait() until Replication.Loaded and Replication.Data
+            
+            local maxUnlocked = Replication.Data.RebirthOptions or 0
+
+            if maxUnlocked > 0 then
+                return maxUnlocked
+            end
+            
+            return nil
+        end)
+
+        return success and result or nil
+    end
+
+    updateRebirthDropdown = function()
+        pcall(function()
+            local options = getAllRebirthOptions() 
+            rebirthOptions = options
+            local dropdownValues = {"Max Unlocked"}
+            for _, option in ipairs(options) do 
+                table.insert(dropdownValues, option.display) 
+            end
+            if rebirthDropdown then 
+                rebirthDropdown:SetValues(dropdownValues) 
+            end
+        end)
+    end
+
+    performRebirth = function()
+        local rebirthIndex
+        if isMaxUnlockedSelected then
+            rebirthIndex = GetMaxUnlockedRebirth()
+        elseif selectedRebirthIndex > 0 and selectedRebirthIndex <= #rebirthOptions then
+            rebirthIndex = rebirthOptions[selectedRebirthIndex].index
+        end
+        if rebirthIndex then
+            local success = pcall(function()
+                Network:InvokeServer("Rebirth", rebirthIndex)
+            end)
+            return success
+        end
+        return false
+    end
+
+    rebirthDropdown = RebirthSection:Dropdown("RebirthDropdown", {
+        Title = "Select Rebirth Amount", 
+        Values = {}, 
+        Searchable = true, 
+        Default = "Max Unlocked", 
+        Multi = false,
+        Callback = function(selectedValue)
+            if selectedValue == "Max Unlocked" then
+                isMaxUnlockedSelected = true
+            else
+                isMaxUnlockedSelected = false
+                for i, option in ipairs(rebirthOptions) do
+                    if option.display == selectedValue then 
+                        selectedRebirthIndex = i
+                        break 
+                    end
+                end
+            end
+        end
+    })
+
+    local rebirthDelayInput = RebirthSection:AddInput("BestRebirthDelay", {
+        Title = "Best Rebirth Delay (seconds)",
+        Default = "",
+        Numeric = true,
+        Finished = false
+    })
+
+    local AutoRebirth = RebirthSection:Toggle("AutoRebirth", {
+        Title = "Auto Rebirth", 
+        Default = false
+    })
+
+    -- Initialize dropdown with actual game data
+    task.spawn(function()
+        repeat task.wait() until Replication.Loaded and Replication.Data
+        pcall(updateRebirthDropdown)
+    end)
+
+    -- Auto-update dropdown every 5 seconds
+    dropdownUpdateThread = task.spawn(function()
+        while true do
+            task.wait(5)
+            pcall(updateRebirthDropdown)
+        end
+    end)
+
+    RebirthSection:Paragraph("RebirthInfo", {
+        Title = "Rebirth Info",
+        Content = "Max Unlocked = Always uses your highest unlocked rebirth.\nDelay Input = Rebirths with the BEST AFFORDABLE rebirth every X seconds (leave empty or 0 to disable this)",
+        TitleAlignment = "Middle"
+    })
+
+    AutoRebirth:OnChanged(function(Value)
+        autoRebirthRunning = Value
+        if autoRebirthThread then
+            task.cancel(autoRebirthThread)
+            autoRebirthThread = nil
+        end
+        if Value then
+            autoRebirthThread = task.spawn(function()
+                while autoRebirthRunning do
+                    local delayValue = rebirthDelayInput.Value
+                    local delay = tonumber(delayValue)
+
+                    if delayValue ~= "" and delay and delay > 0 then
+                        
+                        task.wait(delay)
+                        
+                        -- At the end of the delay, check best affordable rebirth
+                        local bestOption = GetBestAffordableRebirth()
+                        if bestOption then
+                            pcall(function() 
+                                Network:InvokeServer("Rebirth", bestOption) 
+                            end)
+                        end
+                    else
+                        if isMaxUnlockedSelected then
+                            task.wait(0.2)
+                        end
+                        local result = pcall(performRebirth)
+                        if not isMaxUnlockedSelected then
+                            task.wait(0.2)
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+
+    local UpgradesSection = Tabs.Main:AddSection("Upgrades")
+
+    local autoUpgradesEnabled = {
+        ["Double Jumps"] = false
+    }
+    local autoUpgradesThread = nil
+
+    -- Get all GemShop upgrade names dynamically
+    local function getGemShopUpgrades()
+        local GemShop = require(ReplicatedStorage.Game.GemShop)
+        local upgrades = {"Double Jumps"}
+        
+        for upgradeName, upgradeData in pairs(GemShop) do
+            if type(upgradeData) == "table" and upgradeData.Price and upgradeData.Total then
+                local title = upgradeData.Title or upgradeName
+                table.insert(upgrades, title)
+                autoUpgradesEnabled[title] = false
+            end
+        end
+        
+        return upgrades
+    end
+
+    local upgradeValues = getGemShopUpgrades()
+
+    local UpgradesDropdown = UpgradesSection:Dropdown("AutoUpgrades", {
+        Title = "Select Upgrades",
+        Values = upgradeValues,
+        Multi = true,
+        Default = {},
+        Callback = function(value)
+            -- Reset all
+            for key in pairs(autoUpgradesEnabled) do
+                autoUpgradesEnabled[key] = false
+            end
+            
+            -- Multi dropdown returns a table with upgrade names as keys and boolean values
+            if type(value) == "table" then
+                for upgradeName, isSelected in pairs(value) do
+                    if isSelected then
+                        autoUpgradesEnabled[upgradeName] = true
+                    end
+                end
+            end
+        end
+    })
+
+
+    local AutoBuyUpgradesToggle = UpgradesSection:AddToggle("AutoBuyUpgrades", {
+        Title = "Auto Buy/Upgrade",
+        Default = false,
+        Callback = function(Value)
+            -- Cancel existing thread
+            if autoUpgradesThread then
+                task.cancel(autoUpgradesThread)
+                autoUpgradesThread = nil
+            end
+            
+            if Value then
+                autoUpgradesThread = task.spawn(function()
+                    local DoubleJumps = require(ReplicatedStorage.Game.DoubleJumps)
+                    local GemShop = require(ReplicatedStorage.Game.GemShop)
+                    local Network = require(ReplicatedStorage.Modules.Network)
+                    
+                    while Value do
+                        local success, err = pcall(function()
+                            repeat task.wait() until Replication.Loaded and Replication.Data
+                            
+                            local world = Replication.Data.World or "Main"
+                            local gems = Replication.Data.Statistics.Gems or 0
+                            local affordableUpgrades = {}
+                            
+                            -- Check Double Jumps
+                            if autoUpgradesEnabled["Double Jumps"] then
+                                local ownedJumps = Replication.Data.DoubleJumps[world] or 1
+                                
+                                if DoubleJumps[world] and DoubleJumps[world].Prices then
+                                    for i, price in pairs(DoubleJumps[world].Prices) do
+                                        if i >= ownedJumps and price <= gems then
+                                            table.insert(affordableUpgrades, {
+                                                type = "DoubleJump",
+                                                price = price,
+                                                displayName = "Double Jump " .. (i + 1)
+                                            })
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                            
+                            -- Check all GemShop upgrades dynamically
+                            for upgradeName, upgradeData in pairs(GemShop) do
+                                if type(upgradeData) == "table" and upgradeData.Price and upgradeData.Total then
+                                    local title = upgradeData.Title or upgradeName
+                                    
+                                    if autoUpgradesEnabled[title] then
+                                        local ownedAmount = Replication.Data.GemShop[upgradeName] or 0
+                                        
+                                        if ownedAmount < upgradeData.Total then
+                                            local nextIndex = ownedAmount + 1
+                                            local price
+                                            
+                                            if upgradeData.Function then
+                                                price = math.round(upgradeData.Function(nextIndex) * upgradeData.Price / 10) * 10
+                                            else
+                                                price = upgradeData.Price * nextIndex
+                                            end
+                                            
+                                            if price <= gems then
+                                                table.insert(affordableUpgrades, {
+                                                    type = "GemShop",
+                                                    price = price,
+                                                    upgradeName = upgradeName,
+                                                    displayName = title .. " " .. nextIndex
+                                                })
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                            
+                            -- Sort by price (cheapest to most expensive)
+                            table.sort(affordableUpgrades, function(a, b) return a.price < b.price end)
+                            
+                            -- Buy upgrades in order with 0.5s delay between each
+                            for _, upgrade in ipairs(affordableUpgrades) do
+                                if upgrade.type == "DoubleJump" then
+                                    Network:InvokeServer("UpgradeDoubleJump", "Main")
+                                    task.wait(0.5)
+                                elseif upgrade.type == "GemShop" then
+                                    Network:InvokeServer("UpgradeGemShop", upgrade.upgradeName)
+                                    task.wait(0.5)
+                                end
+                            end
+                        end)
+                        
+                        task.wait(2) -- Check every 2 seconds
+                    end
+                end)
+            end
+        end
+    })
+
+    local EggSection = Tabs.Eggs:AddSection("Egg Hatching")
+    
+    local Eggs = require(ReplicatedStorage.Game.Eggs)
+    local Network = require(ReplicatedStorage.Modules.Network)
+    local selectedEgg = nil
+    local selectedHatchAmount = 1
+    local autoHatchEnabled = false
+    local autoHatchThread = nil
+    
+    -- Build egg dropdown values (excluding eggs with Currency field and Chronos Egg)
+    local function getEggDropdownValues()
+        local eggList = {}
+        local sortedEggs = {}
+        
+        -- Collect all eggs without Currency field and exclude Chronos Egg
+        for eggName, eggData in pairs(Eggs) do
+            if type(eggData) == "table" and not eggData.Currency and eggData.Price and eggName ~= "Chronos Egg" then
+                table.insert(sortedEggs, {
+                    name = eggName,
+                    price = eggData.Price
+                })
+            end
+        end
+        
+        -- Sort by price (lowest to highest)
+        table.sort(sortedEggs, function(a, b) return a.price < b.price end)
+        
+        -- Format dropdown values
+        for _, egg in ipairs(sortedEggs) do
+            local priceStr = formatNumber(egg.price)
+            table.insert(eggList, string.format("%s - %s", egg.name, priceStr))
+        end
+        
+        return eggList, sortedEggs
+    end
+    
+    local eggDropdownValues, sortedEggs = getEggDropdownValues()
+    
+    -- Set default egg (safely)
+    if sortedEggs and sortedEggs[1] then
+        selectedEgg = sortedEggs[1].name
+    end
+    
+    local eggDropdown = EggSection:Dropdown("EggDropdown", {
+        Title = "Select Egg",
+        Values = eggDropdownValues,
+        Searchable = true,
+        Default = (eggDropdownValues and #eggDropdownValues > 0) and eggDropdownValues[1] or "Basic - 250",
+        Multi = false,
+        Callback = function(selectedValue)
+            local eggName = selectedValue:match("^(.-)%s*%-")
+            if eggName then
+                selectedEgg = eggName
+            end
+        end
+    })
+    
+    local hatchAmountDropdown = EggSection:Dropdown("HatchAmountDropdown", {
+        Title = "Hatch Amount",
+        Values = {"1x", "3x", "8x"},
+        Default = "1x",
+        Multi = false,
+        Callback = function(selectedValue)
+            if selectedValue == "1x" then
+                selectedHatchAmount = 1
+            elseif selectedValue == "3x" then
+                selectedHatchAmount = 3
+            elseif selectedValue == "8x" then
+                selectedHatchAmount = 8
+            end
+        end
+    })
+    
+    local AutoHatchToggle = EggSection:AddToggle("AutoHatch", {
+        Title = "Auto Hatch",
+        Default = false,
+        Callback = function(Value)
+            autoHatchEnabled = Value
+            if autoHatchThread then
+                task.cancel(autoHatchThread)
+                autoHatchThread = nil
+            end
+            if Value then
+                autoHatchThread = task.spawn(function()
+                    while autoHatchEnabled do
+                        if selectedEgg then
+                            pcall(function()
+                                Network:InvokeServer("OpenEgg", selectedEgg, selectedHatchAmount)
+                            end)
+                        end
+                        task.wait(0.25)
+                    end
+                end)
+            end
+        end
+    })
+    
+    EggSection:Paragraph("EggInfo", {
+        Title = "Egg Info",
+        Content = "Select an egg and hatch amount, then enable Auto Hatch.\nYou need to own the hatch multiplier (3x/8x) to use it.",
+        TitleAlignment = "Middle"
+    })
+
+    local AutoDeleteSection = Tabs.Eggs:AddSection("Auto Delete")
+
+    local Eggs = require(ReplicatedStorage.Game.Eggs)
+    local selectedDeleteEgg = nil
+    local selectedDeletePets = {}
+    local deleteDropdown = nil
+
+    -- Build egg dropdown for auto delete
+    local function getDeleteEggValues()
+        local eggList = {}
+        
+        for eggName, eggData in pairs(Eggs) do
+            if type(eggData) == "table" and eggData.Pets and eggName ~= "Chronos Egg" then
+                table.insert(eggList, eggName)
+            end
+        end
+        
+        table.sort(eggList)
+        return eggList
+    end
+
+    local function updateDeletePetDropdown(eggName)
+        if not eggName or not Eggs[eggName] or not Eggs[eggName].Pets then
+            if deleteDropdown then
+                deleteDropdown:SetValues({})
+            end
+            return
+        end
+        
+        local petList = {}
+        for petName, chance in pairs(Eggs[eggName].Pets) do
+            local percentage = Eggs.GetChance(eggName, petName)
+            table.insert(petList, {
+                name = petName,
+                chance = chance,
+                percentage = percentage,
+                display = string.format("%s - %s%%", petName, tostring(percentage))
+            })
+        end
+        
+        -- Sort by chance (highest to lowest)
+        table.sort(petList, function(a, b) return a.chance > b.chance end)
+        
+        -- Extract just the display strings
+        local sortedDisplayList = {}
+        for _, pet in ipairs(petList) do
+            table.insert(sortedDisplayList, pet.display)
+        end
+        
+        if deleteDropdown then
+            deleteDropdown:SetValues(sortedDisplayList)
+        end
+    end
+
+
+    local deleteEggDropdown = AutoDeleteSection:Dropdown("DeleteEggDropdown", {
+        Title = "Select Egg",
+        Values = getDeleteEggValues(),
+        Searchable = true,
+        Default = nil,
+        Multi = false,
+        Callback = function(selectedValue)
+            selectedDeleteEgg = selectedValue
+            selectedDeletePets = {}
+            updateDeletePetDropdown(selectedValue)
+        end
+    })
+
+    deleteDropdown = AutoDeleteSection:Dropdown("DeletePetsDropdown", {
+        Title = "Select Pets to Delete",
+        Values = {},
+        Multi = true,
+        Default = {},
+        Callback = function(value)
+            selectedDeletePets = {}
+            
+            if type(value) == "table" then
+                for petDisplay, isSelected in pairs(value) do
+                    if isSelected then
+                        local petName = petDisplay:match("^(.-)%s*%-")
+                        if petName then
+                            table.insert(selectedDeletePets, petName)
+                        end
+                    end
+                end
+            end
+        end
+    })
+
+    local ApplyAutoDeleteButton = AutoDeleteSection:AddButton({
+        Title = "Apply Auto Delete",
+        Callback = function()
+            if not selectedDeleteEgg or #selectedDeletePets == 0 then
+                return
+            end
+            
+            local deleteData = {
+                [selectedDeleteEgg] = selectedDeletePets
+            }
+            
+            local Network = require(ReplicatedStorage.Modules.Network)
+            local success = pcall(function()
+                Network:FireServer("AutoDelete", deleteData)
+            end)
+            
+            if success then
+            end
+        end
+    })
+
+    local CraftingSection = Tabs.Crafting:AddSection("Golden Pets")
+
+    local Replication = require(ReplicatedStorage.Game.Replication)
+    local Network = require(ReplicatedStorage.Modules.Network)
+
+    -- Get all unique Normal tier pet names
+    local function getNormalPetNames()
+        repeat task.wait() until Replication.Loaded and Replication.Data
+        
+        local petNames = {}
+        local nameSet = {}
+        
+        for petId, petData in pairs(Replication.Data.Pets) do
+            if petData.Tier == "Normal" and not nameSet[petData.Name] then
+                table.insert(petNames, petData.Name)
+                nameSet[petData.Name] = true
+            end
+        end
+        
+        table.sort(petNames)
+        return petNames
+    end
+
+    -- Count how many of a specific pet name the player owns (Normal tier only, unlocked only)
+    local function countPetsOfName(petName)
+        local count = 0
+        for petId, petData in pairs(Replication.Data.Pets) do
+            if petData.Name == petName and petData.Tier == "Normal" and not petData.Locked then
+                count = count + 1
+            end
+        end
+        return count
+    end
+
+    local selectedPets = {}
+    local selectedChance = "100%"
+    local petsDropdown = nil
+    local petCountParagraph = nil
+    local autoCraftEnabled = false
+    local autoCraftThread = nil
+
+    -- Update pet count display
+    local function updatePetCount()
+        if not petCountParagraph then return end
+        
+        local statusText = "Selected Pets:\n"
+        for petName, isSelected in pairs(selectedPets) do
+            if isSelected then
+                local count = countPetsOfName(petName)
+                statusText = statusText .. string.format("%s: %d owned\n", petName, count)
+            end
+        end
+        
+        if not next(selectedPets) then
+            statusText = "No pets selected"
+        end
+        
+        petCountParagraph:SetContent(statusText)
+    end
+
+    local function getPetIdsForCraft(petName, amount)
+        local ids = {}
+        for petId, petData in pairs(Replication.Data.Pets) do
+            if petData.Name == petName and petData.Tier == "Normal" and not petData.Locked and #ids < amount then
+                table.insert(ids, petId)
+            end
+        end
+        return ids
+    end
+
+
+    local RainbowSection = Tabs.Crafting:AddSection("Rainbow Pets")
+
+    local selectedRainbowPets = {}
+    local selectedRainbowTime = "8h - 1 Pet"
+    local rainbowPetsDropdown = nil
+    local rainbowStatusParagraph = nil
+    local autoRainbowEnabled = false
+    local autoRainbowThread = nil
+
+    -- Get all unique Golden tier pet names
+    local function getGoldenPetNames()
+        repeat task.wait() until Replication.Loaded and Replication.Data
+        
+        local petNames = {}
+        local nameSet = {}
+        
+        for petId, petData in pairs(Replication.Data.Pets) do
+            if petData.Tier == "Golden" and not nameSet[petData.Name] then
+                table.insert(petNames, petData.Name)
+                nameSet[petData.Name] = true
+            end
+        end
+        
+        table.sort(petNames)
+        return petNames
+    end
+
+    -- Count how many of a specific pet name the player owns (Golden tier only, unlocked only)
+    local function countGoldenPetsOfName(petName)
+        local count = 0
+        for petId, petData in pairs(Replication.Data.Pets) do
+            if petData.Name == petName and petData.Tier == "Golden" and not petData.Locked then
+                count = count + 1
+            end
+        end
+        return count
+    end
+
+    -- Get pet IDs for rainbow crafting (only unlocked Golden pets)
+    local function getGoldenPetIdsForCraft(petName, amount)
+        local ids = {}
+        for petId, petData in pairs(Replication.Data.Pets) do
+            if petData.Name == petName and petData.Tier == "Golden" and not petData.Locked and #ids < amount then
+                table.insert(ids, petId)
+            end
+        end
+        return ids
+    end
+
+    -- Get currently crafting rainbow pets with time left
+    local function getCurrentlyCrafting()
+        local crafting = {}
+        
+        if Replication.Data.CraftingPets and Replication.Data.CraftingPets.Rainbow then
+            for petId, craftData in pairs(Replication.Data.CraftingPets.Rainbow) do
+                local timeLeft = math.max(0, craftData.EndTime - os.time())
+                local hours = math.floor(timeLeft / 3600)
+                local minutes = math.floor((timeLeft % 3600) / 60)
+                local seconds = timeLeft % 60
+                
+                local timeString
+                if hours > 0 then
+                    timeString = string.format("%dh %dm %ds", hours, minutes, seconds)
+                elseif minutes > 0 then
+                    timeString = string.format("%dm %ds", minutes, seconds)
+                else
+                    timeString = string.format("%ds", seconds)
+                end
+                
+                table.insert(crafting, {
+                    id = petId,
+                    name = craftData.Name or "Unknown",
+                    timeLeft = timeLeft,
+                    timeString = timeString
+                })
+            end
+        end
+        
+        return crafting
+    end
+
+    -- Update rainbow pet status display
+    local function updateRainbowStatus()
+        if not rainbowStatusParagraph then return end
+        
+        local statusText = "Selected Pets:\n"
+        local hasSelectedPets = false
+        
+        for petName, isSelected in pairs(selectedRainbowPets) do
+            if isSelected then
+                hasSelectedPets = true
+                local count = countGoldenPetsOfName(petName)
+                statusText = statusText .. string.format("%s: %d owned\n", petName, count)
+            end
+        end
+        
+        if not hasSelectedPets then
+            statusText = "No pets selected\n"
+        end
+        
+        statusText = statusText .. "\nCurrently Crafting:\n"
+        local crafting = getCurrentlyCrafting()
+        
+        if #crafting > 0 then
+            for _, craft in ipairs(crafting) do
+                statusText = statusText .. string.format("%s: %s\n", craft.name, craft.timeString)
+            end
+        else
+            statusText = statusText .. "None"
+        end
+        
+        rainbowStatusParagraph:SetContent(statusText)
+    end
+
+    local rainbowTimeDropdown = RainbowSection:Dropdown("RainbowTime", {
+        Title = "Select Time",
+        Values = {"8h - 1 Pet", "5h - 2 Pets", "2.5h - 3 Pets", "1h - 4 Pets", "30s - 5 Pets"},
+        Default = nil,
+        Multi = false,
+        Callback = function(value)
+            selectedRainbowTime = value
+        end
+    })
+
+    rainbowPetsDropdown = RainbowSection:Dropdown("RainbowPets", {
+        Title = "Select Pets to Craft",
+        Values = getGoldenPetNames(),
+        Multi = true,
+        Searchable = true,
+        Default = {},
+        Callback = function(value)
+            selectedRainbowPets = value
+            updateRainbowStatus()
+        end
+    })
+
+    local RefreshRainbowButton = RainbowSection:AddButton({
+        Title = "Refresh Pets",
+        Description = "Updates the pet list and counts",
+        Callback = function()
+            if rainbowPetsDropdown then
+                rainbowPetsDropdown:SetValues(getGoldenPetNames())
+            end
+            updateRainbowStatus()
+        end
+    })
+
+    rainbowStatusParagraph = RainbowSection:AddParagraph("RainbowStatus", {
+        Title = "Pet Status",
+        Content = "No pets selected"
+    })
+
+    local AutoRainbowToggle = RainbowSection:AddToggle("AutoCraftRainbow", {
+        Title = "Auto Craft (Rainbow)",
+        Default = false,
+        Callback = function(Value)
+            autoRainbowEnabled = Value
+            
+            if autoRainbowThread then
+                task.cancel(autoRainbowThread)
+                autoRainbowThread = nil
+            end
+            
+            if Value then
+                autoRainbowThread = task.spawn(function()
+                    while autoRainbowEnabled do
+                        if selectedRainbowTime:match("1 Pet") then
+                            petsNeeded = 1
+                        elseif selectedRainbowTime:match("2 Pets") then
+                            petsNeeded = 2
+                        elseif selectedRainbowTime:match("3 Pets") then
+                            petsNeeded = 3
+                        elseif selectedRainbowTime:match("4 Pets") then
+                            petsNeeded = 4
+                        elseif selectedRainbowTime:match("5 Pets") then
+                            petsNeeded = 5
+                        end
+                        
+                        -- Refresh data
+                        repeat task.wait() until Replication.Loaded and Replication.Data
+                        
+                        -- Check for completed crafts to claim
+                        local crafting = getCurrentlyCrafting()
+                        for _, craft in ipairs(crafting) do
+                            if craft.timeLeft <= 0 then
+                                pcall(function()
+                                    Network:InvokeServer("ClaimRainbow", craft.id)
+                                end)
+                                task.wait(0.5)
+                            end
+                        end
+                        
+                        local craftedAny = false
+                        
+                        -- Start new crafts for selected pets
+                        for petName, isSelected in pairs(selectedRainbowPets) do
+                            if isSelected and autoRainbowEnabled then
+                                -- Refresh data
+                                repeat task.wait() until Replication.Loaded and Replication.Data
+                                
+                                -- Get IDs for this pet (Golden tier)
+                                local petIds = getGoldenPetIdsForCraft(petName, petsNeeded)
+                                
+                                if #petIds >= petsNeeded then
+                                    craftedAny = true
+                                    pcall(function()
+                                        Network:InvokeServer("StartRainbow", petIds)
+                                    end)
+                                    
+                                    task.wait(1) -- Wait between crafts
+                                end
+                            end
+                        end
+                        
+                        -- Update status
+                        updateRainbowStatus()
+                        
+                        -- Wait 5 seconds before next check
+                        task.wait(5)
+                    end
+                end)
+            end
+        end
+    })
+
+
+    RainbowSection:AddParagraph("RainbowInfo",{
+        Title = "Note",
+        Content = "You will need to stand close to the machine for some reason for this to work.",
+    })
+
+    local chanceDropdown = CraftingSection:Dropdown("CraftChance", {
+        Title = "Select Chance",
+        Values = {"5% (1 pet)", "15% (2 pets)", "35% (3 pets)", "60% (4 pets)", "80% (5 pets)", "100% (6 pets)"},
+        Default = "100% (6 pets)",
+        Multi = false,
+        Callback = function(value)
+            selectedChance = value
+        end
+    })
+
+    petsDropdown = CraftingSection:Dropdown("CraftPets", {
+        Title = "Select Pets to Craft",
+        Values = getNormalPetNames(),
+        Multi = true,
+        Searchable = true,
+        Default = {},
+        Callback = function(value)
+            selectedPets = value
+            updatePetCount()
+        end
+    })
+
+    local RefreshPetsButton = CraftingSection:AddButton({
+        Title = "Refresh Pets",
+        Description = "Updates the pet list and counts",
+        Callback = function()
+            if petsDropdown then
+                petsDropdown:SetValues(getNormalPetNames())
+            end
+            updatePetCount()
+        end
+    })
+
+    petCountParagraph = CraftingSection:AddParagraph("Golden",{
+        Title = "Pet Status",
+        Content = "No pets selected,"
+    })
+
+    local AutoCraftToggle = CraftingSection:AddToggle("AutoCraftGolden", {
+        Title = "Auto Craft (Golden)",
+        Default = false,
+        Callback = function(Value)
+            autoCraftEnabled = Value
+            
+            if autoCraftThread then
+                task.cancel(autoCraftThread)
+                autoCraftThread = nil
+            end
+            
+            if Value then
+                autoCraftThread = task.spawn(function()
+                    while autoCraftEnabled do
+                        -- Determine how many pets needed based on chance
+                        local petsNeeded = 6
+                        if selectedChance:match("5%%") then
+                            petsNeeded = 1
+                        elseif selectedChance:match("15%%") then
+                            petsNeeded = 2
+                        elseif selectedChance:match("35%%") then
+                            petsNeeded = 3
+                        elseif selectedChance:match("60%%") then
+                            petsNeeded = 4
+                        elseif selectedChance:match("80%%") then
+                            petsNeeded = 5
+                        elseif selectedChance:match("100%%") then
+                            petsNeeded = 6
+                        end
+                        
+                        local craftedAny = false
+                        
+                        -- Craft each selected pet type
+                        for petName, isSelected in pairs(selectedPets) do
+                            if isSelected and autoCraftEnabled then
+                                -- Refresh data
+                                repeat task.wait() until Replication.Loaded and Replication.Data
+                                
+                                -- Get IDs for this pet
+                                local petIds = getPetIdsForCraft(petName, petsNeeded)
+                                
+                                if #petIds >= petsNeeded then
+                                    craftedAny = true
+                                    pcall(function()
+                                        Network:InvokeServer("CraftPets", petIds)
+                                    end)
+                                    
+                                    task.wait(1) -- Wait between crafts
+                                end
+                            end
+                        end
+                        
+                        updatePetCount()
+
+                        if not craftedAny then
+                            task.wait(5)
+                        else
+                            task.wait(2)
+                        end
+                    end
+                end)
+            end
+        end
+    })
+
+    ParagraphGolden = CraftingSection:AddParagraph("GoldenInfo",{
+        Title = "Note",
+        Content = "You will need to stand close to the machine for some reason for this to work.",
+    })
+
+    local TeleportSection = Tabs.Teleport:AddSection("Zones")
+
+    local function getAllZones()
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        local Portals = require(ReplicatedStorage.Game.Portals)
+        local Zones = workspace:WaitForChild("Zones")
+        local PortalsFolder = Zones:WaitForChild("Portals")
+        
+        local zoneList = {}
+        
+        -- Add spawn point
+        local SpawnPoint = Zones:FindFirstChild("TpPoint")
+        if SpawnPoint then
+            table.insert(zoneList, {
+                name = "Spawn",
+                price = 0,
+                cframe = SpawnPoint.CFrame
+            })
+        end
+        
+        -- Collect all portal zones
+        for portalName, portalData in pairs(Portals) do
+            local portalFolder = PortalsFolder:FindFirstChild(portalName)
+            
+            if portalFolder and portalFolder:IsA("Folder") then
+                local teleportCFrame
+                
+                -- Check for TP object (primary teleport location)
+                local tpObject = portalFolder:FindFirstChild("TP")
+                if tpObject and tpObject.CFrame then
+                    teleportCFrame = tpObject.CFrame
+                else
+                    -- Calculate fallback position
+                    local backPortal = portalFolder:FindFirstChild("Back")
+                    if backPortal then
+                        local portalPart = backPortal:FindFirstChild("Portal")
+                        if not portalPart then
+                            portalPart = backPortal
+                        end
+                        
+                        if portalPart and portalPart.CFrame then
+                            teleportCFrame = (portalPart.CFrame + portalPart.CFrame.RightVector * 18) * CFrame.Angles(0, -math.pi/2, 0)
+                        end
+                    end
+                end
+                
+                if teleportCFrame then
+                    table.insert(zoneList, {
+                        name = portalName,
+                        price = portalData.Price,
+                        cframe = teleportCFrame
+                    })
+                end
+            end
+        end
+        
+        -- Sort by price
+        table.sort(zoneList, function(a, b) return a.price < b.price end)
+        
+        return zoneList
+    end
+
+    -- Create teleport buttons for each zone
+    local zones = getAllZones()
+
+    for _, zone in ipairs(zones) do
+        local buttonTitle = "Teleport to " .. zone.name
+        if zone.price > 0 then
+        end
+        
+        TeleportSection:AddButton({
+            Title = buttonTitle,
+            Callback = function()
+                local character = LocalPlayer.Character
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    pcall(function()
+                        character:PivotTo(zone.cframe)
+                    end)
+                end
+            end
+        })
+    end
+
+    local UnlockZonesSection = Tabs.Misc:AddSection("Unlock Zones")
+
+    UnlockZonesSection:AddButton({
+        Title = "Unlock All Zones",
+        Callback = function()
+            task.spawn(function()
+                local TweenService = game:GetService("TweenService")
+                local character = LocalPlayer.Character
+                
+                if not character or not character:FindFirstChild("HumanoidRootPart") then
+                    warn("Character not found!")
+                    return
+                end
+                
+                local humanoidRootPart = character.HumanoidRootPart
+                
+                -- Save original position BEFORE doing anything
+                local originalCFrame = humanoidRootPart.CFrame
+                
+                local zones = getAllZones()
+                
+                -- Find the highest zone (most expensive)
+                local highestZone = nil
+                for _, zone in ipairs(zones) do
+                    if zone.name ~= "Spawn" then
+                        highestZone = zone
+                    end
+                end
+                
+                if not highestZone then
+                    return
+                end
+                
+                -- Get target position
+                local targetCFrame = highestZone.cframe
+                local targetY = targetCFrame.Position.Y
+                
+                -- Create intermediate position (straight up from start, at target height)
+                local upwardPosition = Vector3.new(originalCFrame.Position.X, targetY + 50, originalCFrame.Position.Z)
+                
+                -- Tween 1: Shoot straight up incredibly fast
+                local tweenInfo1 = TweenInfo.new(
+                    3, -- 0.5 seconds to go up
+                    Enum.EasingStyle.Sine,
+                    Enum.EasingDirection.Out
+                )
+                
+                local tween1 = TweenService:Create(humanoidRootPart, tweenInfo1, {
+                    CFrame = CFrame.new(upwardPosition)
+                })
+                
+                tween1:Play()
+                tween1.Completed:Wait()
+                
+                -- Teleport to highest zone to unlock it
+                pcall(function()
+                    character:PivotTo(targetCFrame)
+                end)
+                
+                task.wait(0.5)
+                
+                -- Return to ORIGINAL position (where you were when you clicked)
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    pcall(function()
+                        character:PivotTo(originalCFrame)
+                    end)
+                end
+            end)
+        end
+    })
+
+    local MiscSection = Tabs.Misc:AddSection("Chests")
+
+    local autoClaimChestsEnabled = false
+    local autoClaimChestsThread = nil
+
+    local ClaimChestsToggle = MiscSection:AddToggle("ClaimAllChests", {
+        Title = "Claim All Island Chests",
+        Default = false,
+        Callback = function(Value)
+            autoClaimChestsEnabled = Value
+            
+            if autoClaimChestsThread then
+                task.cancel(autoClaimChestsThread)
+                autoClaimChestsThread = nil
+            end
+            
+            if Value then
+                autoClaimChestsThread = task.spawn(function()
+                    local Chests = require(ReplicatedStorage.Game.Chests)
+                    local Network = require(ReplicatedStorage.Modules.Network)
+                    
+                    while autoClaimChestsEnabled do
+                        -- Claim all chests with 1 second delay between each
+                        for chestName, chestData in pairs(Chests) do
+                            if autoClaimChestsEnabled then
+                                pcall(function()
+                                    Network:InvokeServer("ClaimChest", chestName)
+                                end)
+                                task.wait(1)
+                            end
+                        end
+                        
+                        -- Wait 5 seconds before claiming again
+                        task.wait(5)
+                    end
+                end)
+            end
+        end
+    })
+    
+
+    local WorldChestsSection = Tabs.Misc:AddSection("World Chests")
+
+    local autoClaimWorldChestsEnabled = false
+    local autoClaimWorldChestsThread = nil
+
+    local ClaimWorldChestsToggle = WorldChestsSection:AddToggle("ClaimWorldChests", {
+        Title = "Claim World Chests",
+        Default = false,
+        Callback = function(Value)
+            autoClaimWorldChestsEnabled = Value
+            
+            if autoClaimWorldChestsThread then
+                task.cancel(autoClaimWorldChestsThread)
+                autoClaimWorldChestsThread = nil
+            end
+            
+            if Value then
+                autoClaimWorldChestsThread = task.spawn(function()
+                    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+                    local Portals = require(ReplicatedStorage.Game.Portals)
+                    local Zones = workspace:WaitForChild("Zones")
+                    local PortalsFolder = Zones:WaitForChild("Portals")
+                    
+                    while autoClaimWorldChestsEnabled do
+                        -- Save current position
+                        local character = LocalPlayer.Character
+                        local originalCFrame
+                        if character and character:FindFirstChild("HumanoidRootPart") then
+                            originalCFrame = character:GetPivot()
+                        end
+                        
+                        -- Get all zones sorted by price
+                        local zoneList = {}
+                        
+                        -- Add spawn point first
+                        local SpawnPoint = Zones:FindFirstChild("TpPoint")
+                        if SpawnPoint then
+                            table.insert(zoneList, {
+                                name = "Spawn",
+                                price = 0,
+                                cframe = SpawnPoint.CFrame
+                            })
+                        end
+                        
+                        for portalName, portalData in pairs(Portals) do
+                            local portalFolder = PortalsFolder:FindFirstChild(portalName)
+                            
+                            if portalFolder and portalFolder:IsA("Folder") then
+                                local teleportCFrame
+                                local tpObject = portalFolder:FindFirstChild("TP")
+                                
+                                if tpObject and tpObject.CFrame then
+                                    teleportCFrame = tpObject.CFrame
+                                else
+                                    local backPortal = portalFolder:FindFirstChild("Back")
+                                    if backPortal then
+                                        local portalPart = backPortal:FindFirstChild("Portal") or backPortal
+                                        if portalPart and portalPart.CFrame then
+                                            teleportCFrame = (portalPart.CFrame + portalPart.CFrame.RightVector * 18) * CFrame.Angles(0, -math.pi/2, 0)
+                                        end
+                                    end
+                                end
+                                
+                                if teleportCFrame then
+                                    table.insert(zoneList, {
+                                        name = portalName,
+                                        price = portalData.Price,
+                                        cframe = teleportCFrame
+                                    })
+                                end
+                            end
+                        end
+                        
+                        table.sort(zoneList, function(a, b) return a.price < b.price end)
+                        
+                        -- Loop through each zone
+                        for _, zone in ipairs(zoneList) do
+                            if not autoClaimWorldChestsEnabled then break end
+                            
+                            -- Teleport to zone
+                            local character = LocalPlayer.Character
+                            if character and character:FindFirstChild("HumanoidRootPart") then
+                                pcall(function()
+                                    character:PivotTo(zone.cframe)
+                                end)
+                                task.wait(0.5) -- Wait for teleport
+                            end
+                            
+                            -- Claim all chests in this zone
+                            local worldChests = workspace:FindFirstChild("Game")
+                            if worldChests then
+                                worldChests = worldChests:FindFirstChild("WorldChests")
+                            end
+                            
+                            if worldChests then
+                                -- Keep claiming until all chests are transparent
+                                while autoClaimWorldChestsEnabled do
+                                    local hasVisibleChest = false
+                                    
+                                    for _, chest in ipairs(worldChests:GetChildren()) do
+                                        if not autoClaimWorldChestsEnabled then break end
+                                        
+                                        if chest:IsA("Model") or chest:IsA("Folder") then
+                                            -- Check for the Circle mesh to see if chest is claimed
+                                            local circleMesh = chest:FindFirstChild("Meshes/clickerchest_Circle", true)
+                                            
+                                            if circleMesh and circleMesh.Transparency < 1 then
+                                                hasVisibleChest = true
+                                                
+                                                -- Touch the chest
+                                                local hitbox = chest:FindFirstChild("Hitbox")
+                                                if hitbox and hitbox:FindFirstChild("TouchInterest") then
+                                                    if character and character:FindFirstChild("HumanoidRootPart") then
+                                                        pcall(function()
+                                                            firetouchinterest(character.HumanoidRootPart, hitbox, 0)
+                                                            task.wait(0.1)
+                                                            firetouchinterest(character.HumanoidRootPart, hitbox, 1)
+                                                        end)
+                                                    end
+                                                    
+                                                    task.wait(0.25)
+                                                end
+                                            end
+                                        end
+                                    end
+                                    
+                                    -- If no more visible chests, move to next zone
+                                    if not hasVisibleChest then
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                        
+                        -- Return to original position
+                        if originalCFrame and autoClaimWorldChestsEnabled then
+                            local character = LocalPlayer.Character
+                            if character and character:FindFirstChild("HumanoidRootPart") then
+                                pcall(function()
+                                    character:PivotTo(originalCFrame)
+                                end)
+                            end
+                        end
+                        
+                        -- Wait 30 seconds before next cycle
+                        task.wait(30)
+                    end
+                end)
+            end
+        end
+    })
+
+
+    RankRewardSection = Tabs.Misc:AddSection("Rank Reward")
+
+    local autoClaimRankRewardEnabled = false
+    local autoClaimRankRewardThread = nil
+
+    local ClaimRankRewardToggle = RankRewardSection:AddToggle("ClaimRankReward", {
+        Title = "Claim Rank Reward",
+        Default = false,
+        Callback = function(Value)
+            autoClaimRankRewardEnabled = Value
+            
+            if autoClaimRankRewardThread then
+                task.cancel(autoClaimRankRewardThread)
+                autoClaimRankRewardThread = nil
+            end
+            
+            if Value then
+                autoClaimRankRewardThread = task.spawn(function()
+                    local Network = require(ReplicatedStorage.Modules.Network)
+                    
+                    while autoClaimRankRewardEnabled do
+                        pcall(function()
+                            Network:InvokeServer("ClaimRankReward")
+                        end)
+                        
+                        task.wait(5)
+                    end
+                end)
+            end
+        end
+    })
+
+
+    local QuestsSection = Tabs.Misc:AddSection("Quests")
+
+    local autoClaimQuestsEnabled = false
+    local autoClaimQuestsThread = nil
+
+    local ClaimQuestsToggle = QuestsSection:AddToggle("ClaimQuests", {
+        Title = "Auto Claim Quests",
+        Description = "You will need to rejoin to remove them from appearing completed in the quest log.",
+        Default = false,
+        Callback = function(Value)
+            autoClaimQuestsEnabled = Value
+            
+            if autoClaimQuestsThread then
+                task.cancel(autoClaimQuestsThread)
+                autoClaimQuestsThread = nil
+            end
+            
+            if Value then
+                autoClaimQuestsThread = task.spawn(function()
+                    local Network = require(ReplicatedStorage.Modules.Network)
+                    
+                    while autoClaimQuestsEnabled do
+                        -- Refresh data
+                        repeat task.wait() until Replication.Loaded and Replication.Data
+                        
+                        -- Get all unclaimed completed quests
+                        if Replication.Data.Quests then
+                            for questName, questData in pairs(Replication.Data.Quests) do
+                                if autoClaimQuestsEnabled and questData.Completed and not questData.Claimed then
+                                    pcall(function()
+                                        Network:InvokeServer("ClaimQuest", questName)
+                                    end)
+                                    task.wait(0.25) 
+                                end
+                            end
+                        end
+                        task.wait(5)
+                    end
+                end)
+            end
+        end
+    })
+
+    local DeletePetsSection = Tabs.Misc:AddSection("Delete Pets")
+
+    local deleteClicksThreshold = 0
+    local deleteWeakestAmount = 0
+    local autoDeleteUnderThresholdEnabled = false
+    local autoDeleteWeakestEnabled = false
+    local autoDeleteUnderThresholdThread = nil
+    local autoDeleteWeakestThread = nil
+
+    -- Parse formatted numbers (e.g., "1.2k", "5m", "1200")
+    local function parseFormattedNumber(input)
+        if not input or input == "" then return 0 end
+        
+        input = tostring(input):lower():gsub("%s+", "")
+        
+        local multipliers = {
+            k = 1e3,
+            m = 1e6,
+            b = 1e9,
+            t = 1e12,
+            qd = 1e15,
+            qn = 1e18,
+            sx = 1e21,
+            sp = 1e24,
+            oc = 1e27
+        }
+        
+        -- Check for multiplier suffix
+        for suffix, mult in pairs(multipliers) do
+            if input:match(suffix .. "$") then
+                local number = tonumber(input:match("^([%d%.]+)"))
+                if number then
+                    return number * mult
+                end
+            end
+        end
+        
+        -- Plain number
+        return tonumber(input) or 0
+    end
+
+    -- Get all pets sorted by Multiplier1 (weakest to strongest)
+    local function getAllPetsSorted()
+        repeat task.wait() until Replication.Loaded and Replication.Data
+        
+        local pets = {}
+        
+        for petId, petData in pairs(Replication.Data.Pets) do
+            if not petData.Locked then
+                table.insert(pets, {
+                    id = petId,
+                    name = petData.Name or "Unknown",
+                    multiplier = petData.Multiplier1 or 0,
+                    tier = petData.Tier or "Normal"
+                })
+            end
+        end
+        
+        -- Sort by multiplier (weakest to strongest)
+        table.sort(pets, function(a, b) 
+            return a.multiplier < b.multiplier 
+        end)
+        
+        return pets
+    end
+
+    local deleteClicksInput = DeletePetsSection:AddInput("DeleteClicksInput", {
+        Title = "Delete Pets Under X Clicks",
+        Description = "e.g., 1.2k, 100, 1200",
+        Default = "",
+        Numeric = false,
+        Callback = function(value)
+            deleteClicksThreshold = parseFormattedNumber(value)
+        end
+    })
+
+    local DeleteUnderThresholdToggle = DeletePetsSection:AddToggle("DeleteUnderThreshold", {
+        Title = "Auto Delete Under Threshold",
+        Default = false,
+        Callback = function(Value)
+            autoDeleteUnderThresholdEnabled = Value
+            
+            if autoDeleteUnderThresholdThread then
+                task.cancel(autoDeleteUnderThresholdThread)
+                autoDeleteUnderThresholdThread = nil
+            end
+            
+            if Value then
+                autoDeleteUnderThresholdThread = task.spawn(function()
+                    local Network = require(ReplicatedStorage.Modules.Network)
+                    
+                    while autoDeleteUnderThresholdEnabled do
+                        -- Refresh data
+                        repeat task.wait() until Replication.Loaded and Replication.Data
+                        
+                        local allPets = getAllPetsSorted()
+                        local deletedCount = 0
+                        
+                        -- Delete pets under clicks threshold
+                        if deleteClicksThreshold > 0 then
+                            for _, pet in ipairs(allPets) do
+                                if autoDeleteUnderThresholdEnabled and pet.multiplier < deleteClicksThreshold then
+                                    pcall(function()
+                                        Network:InvokeServer("DeletePet", pet.id)
+                                    end)
+                                    deletedCount = deletedCount + 1
+                                    task.wait(0.25)
+                                end
+                            end
+                        end
+                        
+                        -- Wait 5 seconds before next check
+                        task.wait(5)
+                    end
+                end)
+            end
+        end
+    })
+
+    local deleteWeakestInput = DeletePetsSection:AddInput("DeleteWeakestInput", {
+        Title = "Delete X Weakest Pets",
+        Description = "Number of weakest pets to delete",
+        Default = "",
+        Numeric = true,
+        Callback = function(value)
+            deleteWeakestAmount = tonumber(value) or 0
+        end
+    })
+
+    local DeleteWeakestButton = DeletePetsSection:AddButton({
+        Title = "Delete X Weakest Pets",
+        Description = "Deletes the specified amount of weakest pets once",
+        Callback = function()
+            task.spawn(function()
+                local Network = require(ReplicatedStorage.Modules.Network)
+                
+                -- Refresh data
+                repeat task.wait() until Replication.Loaded and Replication.Data
+                
+                local allPets = getAllPetsSorted()
+                local deletedCount = 0
+                
+                -- Delete X weakest pets
+                if deleteWeakestAmount > 0 then
+                    for i = 1, math.min(deleteWeakestAmount, #allPets) do
+                        local pet = allPets[i]
+                        pcall(function()
+                            Network:InvokeServer("DeletePet", pet.id)
+                        end)
+                        deletedCount = deletedCount + 1
+                        task.wait(0.25)
+                    end
+                end
+            end)
+        end
+    })
+
+    DeletePetsSection:AddParagraph("DeletePetsInfo", {
+        Title = "Delete Pets Info",
+        Content = "• Delete Under X Clicks: Deletes all unlocked pets with the multiplier below the threshold (e.g., 1.2k = 1200 clicks)\n\n• Delete X Weakest: Deletes the X weakest unlocked pets by multiplier",
+        TitleAlignment = "Middle"
+    })
+
+
+    SaveManager:SetLibrary(Library)
+    InterfaceManager:SetLibrary(Library)
+    SaveManager:IgnoreThemeSettings()
+    SaveManager:SetIgnoreIndexes{}
+    InterfaceManager:SetFolder("FluentScriptHub")
+    SaveManager:SetFolder("FluentScriptHub/TapSimulator")
+
+    InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+    SaveManager:BuildConfigSection(Tabs.Settings)
+
+    Window:SelectTab(1)
+    SaveManager:LoadAutoloadConfig()
+
+    local usercountsection = Tabs.Settings:AddSection("User Count")
+
+    local userCountParagraph = Tabs.Settings:AddParagraph("UserCountStatus", {
+        Title = "Script User Count",
+        Content = "Loading..."
+    })
+
+    -- Step 1: Register the user
+    local registerResponse = requestFunc({
+        Url = "https://duckyscripts.pythonanywhere.com/api/tapsim/add-user",
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "application/json"
+        },
+        Body = HttpService:JSONEncode({
+            username = username,
+            userid = userid
+        })
+    })
+
+    if registerResponse and registerResponse.Body then
+    end
+
+    task.spawn(function()
+        while true do
+            local heartbeatResponse = requestFunc({
+                Url = "https://duckyscripts.pythonanywhere.com/api/tapsim/active",
+                Method = "POST",
+                Headers = {
+                    ["Content-Type"] = "application/json"
+                },
+                Body = HttpService:JSONEncode({
+                    userid = userid,
+                    active = true
+                })
+            })
+
+            if heartbeatResponse and heartbeatResponse.Body then
+                local responseBody = heartbeatResponse.Body
+                local data = HttpService:JSONDecode(responseBody)
+                local activeCount = data.active_count or 0
+                local totalCount = data.count or 0
+                userCountParagraph:SetValue(tostring ("Total users: " .. tostring(totalCount) .. "\n" .. "Active Users: " .. tostring(activeCount)))
+            end
+
+            task.wait(30) 
+        end
+    end)
+end
+
+task.spawn(function()
+    if not game:IsLoaded() then game.Loaded:Wait() end
+
+    Window = Library:Window{
+        Title = "Tap Simulator",
+        SubTitle = "By Duckie",
+        TabWidth = 160,
+        Size = UDim2.fromOffset(580, 460),
+        Resize = false,
+        Theme = "Darker",
+        MinimizeKey = Enum.KeyCode.LeftShift
+    }
+
+    Tabs = {
+        Settings = Window:AddTab({ Title = "Settings", Icon = "settings" }),
+        Main = Window:AddTab({ Title = "Main", Icon = "crown" }),
+        Eggs = Window:AddTab({ Title = "Eggs", Icon = "egg" }),
+        Crafting = Window:AddTab({ Title = "Pet Crafting", Icon = "paw-print" }),
+        Teleport = Window:AddTab({ Title = "Teleport", Icon = "map" }),
+        Misc = Window:AddTab({ Title = "Misc", Icon = "sparkles" }),
+    }
+
+    BuildUI()
+end)
