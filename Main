@@ -1792,6 +1792,105 @@ BuildUI = function()
         end
     })
 
+
+    local AutoUseBoostsSection = Tabs.Misc:AddSection("Auto Use Boosts")
+
+    local Boosts = require(ReplicatedStorage.Game.Boosts)
+    local selectedBoosts = {}
+    local autoUseBoostsEnabled = false
+    local autoUseBoostsThread = nil
+    local boostsDropdown = nil
+
+    -- Get all boost names from the Boosts module
+    local function getAllBoostNames()
+        local boostList = {}
+        
+        for boostName, boostData in pairs(Boosts) do
+            if type(boostData) == "table" then
+                table.insert(boostList, boostName)
+            end
+        end
+        
+        table.sort(boostList)
+        return boostList
+    end
+
+    boostsDropdown = AutoUseBoostsSection:Dropdown("BoostsDropdown", {
+        Title = "Select Boosts",
+        Values = getAllBoostNames(),
+        Multi = true,
+        Searchable = true,
+        Default = {},
+        Callback = function(value)
+            selectedBoosts = {}
+            
+            if type(value) == "table" then
+                for boostName, isSelected in pairs(value) do
+                    if isSelected then
+                        selectedBoosts[boostName] = true
+                    end
+                end
+            end
+        end
+    })
+
+    local AutoUseBoostsToggle = AutoUseBoostsSection:AddToggle("AutoUseBoosts", {
+        Title = "Auto Use Boosts",
+        Default = false,
+        Callback = function(Value)
+            autoUseBoostsEnabled = Value
+            
+            if autoUseBoostsThread then
+                task.cancel(autoUseBoostsThread)
+                autoUseBoostsThread = nil
+            end
+            
+            if Value then
+                autoUseBoostsThread = task.spawn(function()
+                    local Network = require(ReplicatedStorage.Modules.Network)
+                    
+                    while autoUseBoostsEnabled do
+                        -- Refresh data
+                        repeat task.wait() until Replication.Loaded and Replication.Data
+                        
+                        -- Check each selected boost
+                        for boostName, isSelected in pairs(selectedBoosts) do
+                            if isSelected and autoUseBoostsEnabled then
+                                -- Check if player owns this boost
+                                local ownedAmount = 0
+                                if Replication.Data.Boosts and Replication.Data.Boosts[boostName] then
+                                    ownedAmount = Replication.Data.Boosts[boostName]
+                                end
+                                
+                                -- Check if boost is currently active
+                                local isActive = false
+                                if Replication.Data.ActiveBoosts and Replication.Data.ActiveBoosts[boostName] then
+                                    isActive = true
+                                    local timeLeft = Replication.Data.ActiveBoosts[boostName]
+                                end
+                                
+                                -- Use boost if player owns it and it's not active
+                                if ownedAmount > 0 and not isActive then
+                                    
+                                    local success, err = pcall(function()
+                                        Network:InvokeServer("UseBoost", boostName)
+                                    end)
+                                    
+                                    if success then
+                                    end
+                                    
+                                    task.wait(0.5)
+                                elseif ownedAmount == 0 then
+                                end
+                            end
+                        end
+                        task.wait(5)
+                    end
+                end)
+            end
+        end
+    })
+
     local DeletePetsSection = Tabs.Misc:AddSection("Delete Pets")
 
     local deleteClicksThreshold = 0
@@ -1954,6 +2053,7 @@ BuildUI = function()
         Content = "• Delete Under X Clicks: Deletes all unlocked pets with the multiplier below the threshold (e.g., 1.2k = 1200 clicks)\n\n• Delete X Weakest: Deletes the X weakest unlocked pets by multiplier",
         TitleAlignment = "Middle"
     })
+
 
 
     SaveManager:SetLibrary(Library)
