@@ -714,6 +714,160 @@ BuildUI = function()
         return ids
     end
 
+    local TeleportSection = Tabs.Teleport:AddSection("Zones")
+
+    local function getAllZones()
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        local Portals = require(ReplicatedStorage.Game.Portals)
+        local Zones = workspace:WaitForChild("Zones")
+        local PortalsFolder = Zones:WaitForChild("Portals")
+        
+        local zoneList = {}
+        
+        -- Add spawn point
+        local SpawnPoint = Zones:FindFirstChild("TpPoint")
+        if SpawnPoint then
+            table.insert(zoneList, {
+                name = "Spawn",
+                price = 0,
+                cframe = SpawnPoint.CFrame
+            })
+        end
+        
+        -- Collect all portal zones
+        for portalName, portalData in pairs(Portals) do
+            local portalFolder = PortalsFolder:FindFirstChild(portalName)
+            
+            if portalFolder and portalFolder:IsA("Folder") then
+                local teleportCFrame
+                
+                -- Check for TP object (primary teleport location)
+                local tpObject = portalFolder:FindFirstChild("TP")
+                if tpObject and tpObject.CFrame then
+                    teleportCFrame = tpObject.CFrame
+                else
+                    -- Calculate fallback position
+                    local backPortal = portalFolder:FindFirstChild("Back")
+                    if backPortal then
+                        local portalPart = backPortal:FindFirstChild("Portal")
+                        if not portalPart then
+                            portalPart = backPortal
+                        end
+                        
+                        if portalPart and portalPart.CFrame then
+                            teleportCFrame = (portalPart.CFrame + portalPart.CFrame.RightVector * 18) * CFrame.Angles(0, -math.pi/2, 0)
+                        end
+                    end
+                end
+                
+                if teleportCFrame then
+                    table.insert(zoneList, {
+                        name = portalName,
+                        price = portalData.Price,
+                        cframe = teleportCFrame
+                    })
+                end
+            end
+        end
+        
+        -- Sort by price
+        table.sort(zoneList, function(a, b) return a.price < b.price end)
+        
+        return zoneList
+    end
+
+    -- Create teleport buttons for each zone
+    local zones = getAllZones()
+
+    for _, zone in ipairs(zones) do
+        local buttonTitle = "Teleport to " .. zone.name
+        if zone.price > 0 then
+        end
+        
+        TeleportSection:AddButton({
+            Title = buttonTitle,
+            Callback = function()
+                local character = LocalPlayer.Character
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    pcall(function()
+                        character:PivotTo(zone.cframe)
+                    end)
+                end
+            end
+        })
+    end
+
+    local UnlockZonesSection = Tabs.Misc:AddSection("Unlock Zones")
+
+    UnlockZonesSection:AddButton({
+        Title = "Unlock All Zones",
+        Callback = function()
+            task.spawn(function()
+                local TweenService = game:GetService("TweenService")
+                local character = LocalPlayer.Character
+                
+                if not character or not character:FindFirstChild("HumanoidRootPart") then
+                    warn("Character not found!")
+                    return
+                end
+                
+                local humanoidRootPart = character.HumanoidRootPart
+                
+                -- Save original position BEFORE doing anything
+                local originalCFrame = humanoidRootPart.CFrame
+                
+                local zones = getAllZones()
+                
+                -- Find the highest zone (most expensive)
+                local highestZone = nil
+                for _, zone in ipairs(zones) do
+                    if zone.name ~= "Spawn" then
+                        highestZone = zone
+                    end
+                end
+                
+                if not highestZone then
+                    return
+                end
+                
+                -- Get target position
+                local targetCFrame = highestZone.cframe
+                local targetY = targetCFrame.Position.Y
+                
+                -- Create intermediate position (straight up from start, at target height)
+                local upwardPosition = Vector3.new(originalCFrame.Position.X, targetY + 50, originalCFrame.Position.Z)
+                
+                -- Tween 1: Shoot straight up incredibly fast
+                local tweenInfo1 = TweenInfo.new(
+                    3, -- 0.5 seconds to go up
+                    Enum.EasingStyle.Sine,
+                    Enum.EasingDirection.Out
+                )
+                
+                local tween1 = TweenService:Create(humanoidRootPart, tweenInfo1, {
+                    CFrame = CFrame.new(upwardPosition)
+                })
+                
+                tween1:Play()
+                tween1.Completed:Wait()
+                
+                -- Teleport to highest zone to unlock it
+                pcall(function()
+                    character:PivotTo(targetCFrame)
+                end)
+                
+                task.wait(0.5)
+                
+                -- Return to ORIGINAL position (where you were when you clicked)
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    pcall(function()
+                        character:PivotTo(originalCFrame)
+                    end)
+                end
+            end)
+        end
+    })
+
 
     local RainbowSection = Tabs.Crafting:AddSection("Rainbow Pets")
 
@@ -867,6 +1021,7 @@ BuildUI = function()
         Content = "No pets selected"
     })
 
+    
     local AutoRainbowToggle = RainbowSection:AddToggle("AutoCraftRainbow", {
         Title = "Auto Craft (Rainbow)",
         Default = false,
@@ -880,60 +1035,278 @@ BuildUI = function()
             
             if Value then
                 autoRainbowThread = task.spawn(function()
+                    local originalCFrame = nil
+                    
                     while autoRainbowEnabled do
-                        if selectedRainbowTime:match("1 Pet") then
-                            petsNeeded = 1
-                        elseif selectedRainbowTime:match("2 Pets") then
-                            petsNeeded = 2
-                        elseif selectedRainbowTime:match("3 Pets") then
-                            petsNeeded = 3
-                        elseif selectedRainbowTime:match("4 Pets") then
-                            petsNeeded = 4
-                        elseif selectedRainbowTime:match("5 Pets") then
-                            petsNeeded = 5
-                        end
-                        
-                        -- Refresh data
-                        repeat task.wait() until Replication.Loaded and Replication.Data
-                        
-                        -- Check for completed crafts to claim
-                        local crafting = getCurrentlyCrafting()
-                        for _, craft in ipairs(crafting) do
-                            if craft.timeLeft <= 0 then
-                                pcall(function()
-                                    Network:InvokeServer("ClaimRainbow", craft.id)
-                                end)
-                                task.wait(0.5)
+                        -- Save original position at start of cycle
+                        if not originalCFrame then
+                            local character = LocalPlayer.Character
+                            if character and character:FindFirstChild("HumanoidRootPart") then
+                                originalCFrame = character:GetPivot()
                             end
                         end
                         
-                        local craftedAny = false
+                        -- DO ALL GOLDEN CRAFTING FIRST (if enabled)
+                        if autoCraftEnabled then
+                            local goldenPetsNeeded = 6
+                            if selectedChance:match("5%%") then
+                                goldenPetsNeeded = 1
+                            elseif selectedChance:match("15%%") then
+                                goldenPetsNeeded = 2
+                            elseif selectedChance:match("35%%") then
+                                goldenPetsNeeded = 3
+                            elseif selectedChance:match("60%%") then
+                                goldenPetsNeeded = 4
+                            elseif selectedChance:match("80%%") then
+                                goldenPetsNeeded = 5
+                            elseif selectedChance:match("100%%") then
+                                goldenPetsNeeded = 6
+                            end
+                            
+                            local movedToVolcano = false
+                            local movedToGoldenMachine = false
+                            
+                            -- Keep crafting until no more pets available
+                            while autoCraftEnabled and autoRainbowEnabled do
+                                local craftedThisLoop = false
+                                
+                                for petName, isSelected in pairs(selectedPets) do
+                                    if isSelected and autoRainbowEnabled and autoCraftEnabled then
+                                        repeat task.wait() until Replication.Loaded and Replication.Data
+                                        local petIds = getPetIdsForCraft(petName, goldenPetsNeeded)
+                                        
+                                        if #petIds >= goldenPetsNeeded then
+                                            -- Teleport to Volcano zone
+                                            if not movedToVolcano then
+                                                local character = LocalPlayer.Character
+                                                if character and character:FindFirstChild("HumanoidRootPart") then
+                                                    local zones = getAllZones()
+                                                    for _, zone in ipairs(zones) do
+                                                        if zone.name == "Volcano" then
+                                                            pcall(function()
+                                                                character:PivotTo(zone.cframe)
+                                                            end)
+                                                            movedToVolcano = true
+                                                            task.wait(0.5)
+                                                            break
+                                                        end
+                                                    end
+                                                end
+                                            end
+                                            
+                                            -- Teleport to machine if needed
+                                            local character = LocalPlayer.Character
+                                            if character and character:FindFirstChild("HumanoidRootPart") then
+                                                local island = workspace:FindFirstChild("Island")
+                                                if island then
+                                                    local volcanoFolder = island:FindFirstChild("Volcano")
+                                                    if volcanoFolder then
+                                                        local volcanoIsland = volcanoFolder:FindFirstChild("VolcanoIsland")
+                                                        if volcanoIsland then
+                                                            local children = volcanoIsland:GetChildren()
+                                                            -- Find the Golden part in any child model
+                                                            local goldenPart = nil
+                                                            for _, child in ipairs(children) do
+                                                                if child:IsA("Model") or child:IsA("Folder") then
+                                                                    local foundGolden = child:FindFirstChild("Golden")
+                                                                    if foundGolden then
+                                                                        goldenPart = foundGolden
+                                                                        break
+                                                                    end
+                                                                end
+                                                            end
+                                                            
+                                                            if goldenPart then
+                                                                local targetPos = goldenPart.CFrame.Position
+                                                                local currentPos = character.HumanoidRootPart.Position
+                                                                local xDiff = math.abs(currentPos.X - targetPos.X)
+                                                                local zDiff = math.abs(currentPos.Z - targetPos.Z)
+                                                                
+                                                                if not movedToGoldenMachine or xDiff > 5 or zDiff > 5 then
+                                                                    pcall(function()
+                                                                        character:PivotTo(goldenPart.CFrame + Vector3.new(0, 3, 0))
+                                                                    end)
+                                                                    movedToGoldenMachine = true
+                                                                    task.wait(0.5)
+                                                                end
+                                                            end
+                                                        end
+                                                    end
+                                                end
+                                            end
+                                            
+                                            craftedThisLoop = true
+                                            pcall(function()
+                                                Network:InvokeServer("CraftPets", petIds)
+                                            end)
+                                            task.wait(1)
+                                        end
+                                    end
+                                end
+                                
+                                -- If no pets were crafted this loop, break
+                                if not craftedThisLoop then
+                                    break
+                                end
+                            end
+                            
+                            updatePetCount()
+                        end
                         
-                        -- Start new crafts for selected pets
-                        for petName, isSelected in pairs(selectedRainbowPets) do
-                            if isSelected and autoRainbowEnabled then
-                                -- Refresh data
+                        -- NOW DO RAINBOW CRAFTING
+                        repeat task.wait() until Replication.Loaded and Replication.Data
+                        
+                        -- Check for completed crafts to claim (ANY with 0 time left)
+                        local crafting = getCurrentlyCrafting()
+                        local hasClaimable = false
+                        
+                        for _, craft in ipairs(crafting) do
+                            if craft.timeLeft <= 0 then
+                                hasClaimable = true
+                                break
+                            end
+                        end
+                        
+                        -- Count how many slots are being used
+                        local usedSlots = #crafting
+                        local maxSlots = 3
+                        local availableSlots = maxSlots - usedSlots
+                        
+                        -- Only proceed with rainbow if there are claimable pets OR available slots
+                        if hasClaimable or availableSlots > 0 then
+                            local petsNeeded = 1
+                            if selectedRainbowTime:match("1 Pet") then
+                                petsNeeded = 1
+                            elseif selectedRainbowTime:match("2 Pets") then
+                                petsNeeded = 2
+                            elseif selectedRainbowTime:match("3 Pets") then
+                                petsNeeded = 3
+                            elseif selectedRainbowTime:match("4 Pets") then
+                                petsNeeded = 4
+                            elseif selectedRainbowTime:match("5 Pets") then
+                                petsNeeded = 5
+                            end
+                            
+                            local hasMovedToZone = false
+                            local hasMovedToMachine = false
+                            
+                            -- Claim all completed crafts first
+                            if hasClaimable then
+                                for _, craft in ipairs(crafting) do
+                                    if craft.timeLeft <= 0 then
+                                        pcall(function()
+                                            Network:InvokeServer("ClaimRainbow", craft.id)
+                                        end)
+                                        task.wait(0.5)
+                                    end
+                                end
+                                
+                                -- Recalculate available slots after claiming
                                 repeat task.wait() until Replication.Loaded and Replication.Data
-                                
-                                -- Get IDs for this pet (Golden tier)
-                                local petIds = getGoldenPetIdsForCraft(petName, petsNeeded)
-                                
-                                if #petIds >= petsNeeded then
-                                    craftedAny = true
-                                    pcall(function()
-                                        Network:InvokeServer("StartRainbow", petIds)
-                                    end)
-                                    
-                                    task.wait(1) -- Wait between crafts
+                                crafting = getCurrentlyCrafting()
+                                usedSlots = #crafting
+                                availableSlots = maxSlots - usedSlots
+                            end
+                            
+                            -- Start new crafts if there are available slots
+                            if availableSlots > 0 then
+                                for petName, isSelected in pairs(selectedRainbowPets) do
+                                    if isSelected and autoRainbowEnabled and availableSlots > 0 then
+                                        repeat task.wait() until Replication.Loaded and Replication.Data
+                                        local petIds = getGoldenPetIdsForCraft(petName, petsNeeded)
+                                        
+                                        if #petIds >= petsNeeded then
+                                            -- Teleport to Heaven zone
+                                            if not hasMovedToZone then
+                                                local character = LocalPlayer.Character
+                                                if character and character:FindFirstChild("HumanoidRootPart") then
+                                                    local zones = getAllZones()
+                                                    for _, zone in ipairs(zones) do
+                                                        if zone.name == "Heaven" then
+                                                            pcall(function()
+                                                                character:PivotTo(zone.cframe)
+                                                            end)
+                                                            hasMovedToZone = true
+                                                            task.wait(0.5)
+                                                            break
+                                                        end
+                                                    end
+                                                end
+                                            end
+                                            
+                                            -- Teleport to rainbow machine if needed
+                                            local character = LocalPlayer.Character
+                                            if character and character:FindFirstChild("HumanoidRootPart") then
+                                                local island = workspace:FindFirstChild("Island")
+                                                if island then
+                                                    local heavenFolder = island:FindFirstChild("Heaven")
+                                                    if heavenFolder then
+                                                        local children = heavenFolder:GetChildren()
+                                                        -- Find the Rainbow part in any child model
+                                                        local rainbowPart = nil
+                                                        for _, child in ipairs(children) do
+                                                            if child:IsA("Model") or child:IsA("Folder") then
+                                                                local foundRainbow = child:FindFirstChild("Rainbow")
+                                                                if foundRainbow then
+                                                                    rainbowPart = foundRainbow
+                                                                    break
+                                                                end
+                                                            end
+                                                        end
+                                                        
+                                                        if rainbowPart then
+                                                            local targetPos = rainbowPart.CFrame.Position
+                                                            local currentPos = character.HumanoidRootPart.Position
+                                                            local xDiff = math.abs(currentPos.X - targetPos.X)
+                                                            local zDiff = math.abs(currentPos.Z - targetPos.Z)
+                                                            
+                                                            if not hasMovedToMachine or xDiff > 5 or zDiff > 5 then
+                                                                pcall(function()
+                                                                    character:PivotTo(rainbowPart.CFrame + Vector3.new(0, 3, 0))
+                                                                end)
+                                                                hasMovedToMachine = true
+                                                                task.wait(0.5)
+                                                            end
+                                                        end
+                                                    end
+                                                end
+                                            end
+                                            
+                                            pcall(function()
+                                                Network:InvokeServer("StartRainbow", petIds)
+                                            end)
+                                            availableSlots = availableSlots - 1
+                                            task.wait(1)
+                                        end
+                                    end
                                 end
                             end
                         end
                         
-                        -- Update status
                         updateRainbowStatus()
                         
-                        -- Wait 5 seconds before next check
+                        -- Return to original position after full cycle
+                        if originalCFrame then
+                            local character = LocalPlayer.Character
+                            if character and character:FindFirstChild("HumanoidRootPart") then
+                                pcall(function()
+                                    character:PivotTo(originalCFrame)
+                                end)
+                            end
+                            originalCFrame = nil
+                        end
+                        
                         task.wait(5)
+                    end
+                    
+                    -- Return to original position when toggle is disabled
+                    if originalCFrame then
+                        local character = LocalPlayer.Character
+                        if character and character:FindFirstChild("HumanoidRootPart") then
+                            pcall(function()
+                                character:PivotTo(originalCFrame)
+                            end)
+                        end
                     end
                 end)
             end
@@ -997,6 +1370,10 @@ BuildUI = function()
             
             if Value then
                 autoCraftThread = task.spawn(function()
+                    local originalCFrame = nil
+                    local hasMovedToZone = false
+                    local hasMovedToMachine = false
+                    
                     while autoCraftEnabled do
                         -- Determine how many pets needed based on chance
                         local petsNeeded = 6
@@ -1026,6 +1403,75 @@ BuildUI = function()
                                 local petIds = getPetIdsForCraft(petName, petsNeeded)
                                 
                                 if #petIds >= petsNeeded then
+                                    -- Save original position only once
+                                    if not originalCFrame then
+                                        local character = LocalPlayer.Character
+                                        if character and character:FindFirstChild("HumanoidRootPart") then
+                                            originalCFrame = character:GetPivot()
+                                        end
+                                    end
+                                    
+                                    -- Teleport to Volcano zone only once
+                                    if not hasMovedToZone then
+                                        local character = LocalPlayer.Character
+                                        if character and character:FindFirstChild("HumanoidRootPart") then
+                                            local zones = getAllZones()
+                                            for _, zone in ipairs(zones) do
+                                                if zone.name == "Volcano" then
+                                                    pcall(function()
+                                                        character:PivotTo(zone.cframe)
+                                                    end)
+                                                    hasMovedToZone = true
+                                                    task.wait(0.5)
+                                                    break
+                                                end
+                                            end
+                                        end
+                                    end
+                                    
+                                    -- Teleport to crafting machine only once or if position drifted
+                                    local character = LocalPlayer.Character
+                                    if character and character:FindFirstChild("HumanoidRootPart") then
+                                        local island = workspace:FindFirstChild("Island")
+                                        if island then
+                                            local volcanoFolder = island:FindFirstChild("Volcano")
+                                            if volcanoFolder then
+                                                local volcanoIsland = volcanoFolder:FindFirstChild("VolcanoIsland")
+                                                if volcanoIsland then
+                                                    local children = volcanoIsland:GetChildren()
+                                                    -- Find the Golden part in any child model
+                                                    local goldenPart = nil
+                                                    for _, child in ipairs(children) do
+                                                        if child:IsA("Model") or child:IsA("Folder") then
+                                                            local foundGolden = child:FindFirstChild("Golden")
+                                                            if foundGolden then
+                                                                goldenPart = foundGolden
+                                                                break
+                                                            end
+                                                        end
+                                                    end
+                                                    
+                                                    if goldenPart then
+                                                        local targetPos = goldenPart.CFrame.Position
+                                                        local currentPos = character.HumanoidRootPart.Position
+                                                        
+                                                        -- Check if X and Z are off by more than 5 studs
+                                                        local xDiff = math.abs(currentPos.X - targetPos.X)
+                                                        local zDiff = math.abs(currentPos.Z - targetPos.Z)
+                                                        
+                                                        if not hasMovedToMachine or xDiff > 5 or zDiff > 5 then
+                                                            pcall(function()
+                                                                character:PivotTo(goldenPart.CFrame + Vector3.new(0, 3, 0))
+                                                            end)
+                                                            hasMovedToMachine = true
+                                                            task.wait(0.5)
+                                                        end
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                    
                                     craftedAny = true
                                     pcall(function()
                                         Network:InvokeServer("CraftPets", petIds)
@@ -1039,9 +1485,31 @@ BuildUI = function()
                         updatePetCount()
 
                         if not craftedAny then
+                            -- No more pets to craft, return to original position
+                            if originalCFrame then
+                                local character = LocalPlayer.Character
+                                if character and character:FindFirstChild("HumanoidRootPart") then
+                                    pcall(function()
+                                        character:PivotTo(originalCFrame)
+                                    end)
+                                end
+                                originalCFrame = nil
+                                hasMovedToZone = false
+                                hasMovedToMachine = false
+                            end
                             task.wait(5)
                         else
                             task.wait(2)
+                        end
+                    end
+                    
+                    -- Return to original position when toggle is disabled
+                    if originalCFrame then
+                        local character = LocalPlayer.Character
+                        if character and character:FindFirstChild("HumanoidRootPart") then
+                            pcall(function()
+                                character:PivotTo(originalCFrame)
+                            end)
                         end
                     end
                 end)
@@ -1052,160 +1520,6 @@ BuildUI = function()
     ParagraphGolden = CraftingSection:AddParagraph("GoldenInfo",{
         Title = "Note",
         Content = "You will need to stand close to the machine for some reason for this to work.",
-    })
-
-    local TeleportSection = Tabs.Teleport:AddSection("Zones")
-
-    local function getAllZones()
-        local ReplicatedStorage = game:GetService("ReplicatedStorage")
-        local Portals = require(ReplicatedStorage.Game.Portals)
-        local Zones = workspace:WaitForChild("Zones")
-        local PortalsFolder = Zones:WaitForChild("Portals")
-        
-        local zoneList = {}
-        
-        -- Add spawn point
-        local SpawnPoint = Zones:FindFirstChild("TpPoint")
-        if SpawnPoint then
-            table.insert(zoneList, {
-                name = "Spawn",
-                price = 0,
-                cframe = SpawnPoint.CFrame
-            })
-        end
-        
-        -- Collect all portal zones
-        for portalName, portalData in pairs(Portals) do
-            local portalFolder = PortalsFolder:FindFirstChild(portalName)
-            
-            if portalFolder and portalFolder:IsA("Folder") then
-                local teleportCFrame
-                
-                -- Check for TP object (primary teleport location)
-                local tpObject = portalFolder:FindFirstChild("TP")
-                if tpObject and tpObject.CFrame then
-                    teleportCFrame = tpObject.CFrame
-                else
-                    -- Calculate fallback position
-                    local backPortal = portalFolder:FindFirstChild("Back")
-                    if backPortal then
-                        local portalPart = backPortal:FindFirstChild("Portal")
-                        if not portalPart then
-                            portalPart = backPortal
-                        end
-                        
-                        if portalPart and portalPart.CFrame then
-                            teleportCFrame = (portalPart.CFrame + portalPart.CFrame.RightVector * 18) * CFrame.Angles(0, -math.pi/2, 0)
-                        end
-                    end
-                end
-                
-                if teleportCFrame then
-                    table.insert(zoneList, {
-                        name = portalName,
-                        price = portalData.Price,
-                        cframe = teleportCFrame
-                    })
-                end
-            end
-        end
-        
-        -- Sort by price
-        table.sort(zoneList, function(a, b) return a.price < b.price end)
-        
-        return zoneList
-    end
-
-    -- Create teleport buttons for each zone
-    local zones = getAllZones()
-
-    for _, zone in ipairs(zones) do
-        local buttonTitle = "Teleport to " .. zone.name
-        if zone.price > 0 then
-        end
-        
-        TeleportSection:AddButton({
-            Title = buttonTitle,
-            Callback = function()
-                local character = LocalPlayer.Character
-                if character and character:FindFirstChild("HumanoidRootPart") then
-                    pcall(function()
-                        character:PivotTo(zone.cframe)
-                    end)
-                end
-            end
-        })
-    end
-
-    local UnlockZonesSection = Tabs.Misc:AddSection("Unlock Zones")
-
-    UnlockZonesSection:AddButton({
-        Title = "Unlock All Zones",
-        Callback = function()
-            task.spawn(function()
-                local TweenService = game:GetService("TweenService")
-                local character = LocalPlayer.Character
-                
-                if not character or not character:FindFirstChild("HumanoidRootPart") then
-                    warn("Character not found!")
-                    return
-                end
-                
-                local humanoidRootPart = character.HumanoidRootPart
-                
-                -- Save original position BEFORE doing anything
-                local originalCFrame = humanoidRootPart.CFrame
-                
-                local zones = getAllZones()
-                
-                -- Find the highest zone (most expensive)
-                local highestZone = nil
-                for _, zone in ipairs(zones) do
-                    if zone.name ~= "Spawn" then
-                        highestZone = zone
-                    end
-                end
-                
-                if not highestZone then
-                    return
-                end
-                
-                -- Get target position
-                local targetCFrame = highestZone.cframe
-                local targetY = targetCFrame.Position.Y
-                
-                -- Create intermediate position (straight up from start, at target height)
-                local upwardPosition = Vector3.new(originalCFrame.Position.X, targetY + 50, originalCFrame.Position.Z)
-                
-                -- Tween 1: Shoot straight up incredibly fast
-                local tweenInfo1 = TweenInfo.new(
-                    3, -- 0.5 seconds to go up
-                    Enum.EasingStyle.Sine,
-                    Enum.EasingDirection.Out
-                )
-                
-                local tween1 = TweenService:Create(humanoidRootPart, tweenInfo1, {
-                    CFrame = CFrame.new(upwardPosition)
-                })
-                
-                tween1:Play()
-                tween1.Completed:Wait()
-                
-                -- Teleport to highest zone to unlock it
-                pcall(function()
-                    character:PivotTo(targetCFrame)
-                end)
-                
-                task.wait(0.5)
-                
-                -- Return to ORIGINAL position (where you were when you clicked)
-                if character and character:FindFirstChild("HumanoidRootPart") then
-                    pcall(function()
-                        character:PivotTo(originalCFrame)
-                    end)
-                end
-            end)
-        end
     })
 
     local MiscSection = Tabs.Misc:AddSection("Chests")
