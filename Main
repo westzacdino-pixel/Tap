@@ -1885,12 +1885,23 @@ BuildUI = function()
 
     local autoEquipBestEnabled = false
     local autoEquipBestThread = nil
+    local autoEquipCalculatedBestEnabled = false
+    local autoEquipCalculatedBestThread = nil
 
-    local AutoEquipBestToggle = EquipBestSection:AddToggle("AutoEquipBest", {
+    -- Declare toggles first so they can reference each other
+    local AutoEquipBestToggle
+    local AutoEquipCalculatedBestToggle
+
+    AutoEquipBestToggle = EquipBestSection:AddToggle("AutoEquipBest", {
         Title = "Auto Equip Best Pets",
         Default = false,
         Callback = function(Value)
             autoEquipBestEnabled = Value
+            
+            -- Turn off the other toggle if this one is being enabled
+            if Value and autoEquipCalculatedBestEnabled then
+                AutoEquipCalculatedBestToggle:SetValue(false)
+            end
             
             if autoEquipBestThread then
                 task.cancel(autoEquipBestThread)
@@ -1944,15 +1955,17 @@ BuildUI = function()
         end
     })
 
-    local autoEquipCalculatedBestEnabled = false
-    local autoEquipCalculatedBestThread = nil
-
-    local AutoEquipCalculatedBestToggle = EquipBestSection:AddToggle("AutoEquipCalculatedBest", {
+    AutoEquipCalculatedBestToggle = EquipBestSection:AddToggle("AutoEquipCalculatedBest", {
         Title = "Auto Equip Calculated Best",
         Description = "Equips your mathematically best pets every 5 seconds",
         Default = false,
         Callback = function(Value)
             autoEquipCalculatedBestEnabled = Value
+            
+            -- Turn off the other toggle if this one is being enabled
+            if Value and autoEquipBestEnabled then
+                AutoEquipBestToggle:SetValue(false)
+            end
             
             if autoEquipCalculatedBestThread then
                 task.cancel(autoEquipCalculatedBestThread)
@@ -2053,7 +2066,6 @@ BuildUI = function()
             end
         end
     })
-
 
     EquipBestSection:AddParagraph("EquipBestInfo", {
         Title = "Equip Best Info",
