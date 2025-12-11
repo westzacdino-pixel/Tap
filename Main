@@ -1020,7 +1020,6 @@ BuildUI = function()
         Title = "Pet Status",
         Content = "No pets selected"
     })
-
     
     local AutoRainbowToggle = RainbowSection:AddToggle("AutoCraftRainbow", {
         Title = "Auto Craft (Rainbow)",
@@ -1038,7 +1037,6 @@ BuildUI = function()
                     local originalCFrame = nil
                     
                     while autoRainbowEnabled do
-                        -- Save original position at start of cycle
                         if not originalCFrame then
                             local character = LocalPlayer.Character
                             if character and character:FindFirstChild("HumanoidRootPart") then
@@ -1046,7 +1044,6 @@ BuildUI = function()
                             end
                         end
                         
-                        -- DO ALL GOLDEN CRAFTING FIRST (if enabled)
                         if autoCraftEnabled then
                             local goldenPetsNeeded = 6
                             if selectedChance:match("5%%") then
@@ -1066,7 +1063,6 @@ BuildUI = function()
                             local movedToVolcano = false
                             local movedToGoldenMachine = false
                             
-                            -- Keep crafting until no more pets available
                             while autoCraftEnabled and autoRainbowEnabled do
                                 local craftedThisLoop = false
                                 
@@ -1076,7 +1072,6 @@ BuildUI = function()
                                         local petIds = getPetIdsForCraft(petName, goldenPetsNeeded)
                                         
                                         if #petIds >= goldenPetsNeeded then
-                                            -- Teleport to Volcano zone
                                             if not movedToVolcano then
                                                 local character = LocalPlayer.Character
                                                 if character and character:FindFirstChild("HumanoidRootPart") then
@@ -1094,7 +1089,6 @@ BuildUI = function()
                                                 end
                                             end
                                             
-                                            -- Teleport to machine if needed
                                             local character = LocalPlayer.Character
                                             if character and character:FindFirstChild("HumanoidRootPart") then
                                                 local island = workspace:FindFirstChild("Island")
@@ -1104,7 +1098,6 @@ BuildUI = function()
                                                         local volcanoIsland = volcanoFolder:FindFirstChild("VolcanoIsland")
                                                         if volcanoIsland then
                                                             local children = volcanoIsland:GetChildren()
-                                                            -- Find the Golden part in any child model
                                                             local goldenPart = nil
                                                             for _, child in ipairs(children) do
                                                                 if child:IsA("Model") or child:IsA("Folder") then
@@ -1144,7 +1137,6 @@ BuildUI = function()
                                     end
                                 end
                                 
-                                -- If no pets were crafted this loop, break
                                 if not craftedThisLoop then
                                     break
                                 end
@@ -1153,26 +1145,22 @@ BuildUI = function()
                             updatePetCount()
                         end
                         
-                        -- NOW DO RAINBOW CRAFTING
                         repeat task.wait() until Replication.Loaded and Replication.Data
                         
-                        -- Check for completed crafts to claim (ANY with 0 time left)
                         local crafting = getCurrentlyCrafting()
+                        
                         local hasClaimable = false
                         
                         for _, craft in ipairs(crafting) do
                             if craft.timeLeft <= 0 then
                                 hasClaimable = true
-                                break
                             end
                         end
                         
-                        -- Count how many slots are being used
                         local usedSlots = #crafting
                         local maxSlots = 3
                         local availableSlots = maxSlots - usedSlots
                         
-                        -- Only proceed with rainbow if there are claimable pets OR available slots
                         if hasClaimable or availableSlots > 0 then
                             local petsNeeded = 1
                             if selectedRainbowTime:match("1 Pet") then
@@ -1190,7 +1178,6 @@ BuildUI = function()
                             local hasMovedToZone = false
                             local hasMovedToMachine = false
                             
-                            -- Claim all completed crafts first
                             if hasClaimable then
                                 for _, craft in ipairs(crafting) do
                                     if craft.timeLeft <= 0 then
@@ -1201,14 +1188,12 @@ BuildUI = function()
                                     end
                                 end
                                 
-                                -- Recalculate available slots after claiming
                                 repeat task.wait() until Replication.Loaded and Replication.Data
                                 crafting = getCurrentlyCrafting()
                                 usedSlots = #crafting
                                 availableSlots = maxSlots - usedSlots
                             end
                             
-                            -- Start new crafts if there are available slots
                             if availableSlots > 0 then
                                 for petName, isSelected in pairs(selectedRainbowPets) do
                                     if isSelected and autoRainbowEnabled and availableSlots > 0 then
@@ -1216,7 +1201,6 @@ BuildUI = function()
                                         local petIds = getGoldenPetIdsForCraft(petName, petsNeeded)
                                         
                                         if #petIds >= petsNeeded then
-                                            -- Teleport to Heaven zone
                                             if not hasMovedToZone then
                                                 local character = LocalPlayer.Character
                                                 if character and character:FindFirstChild("HumanoidRootPart") then
@@ -1234,38 +1218,47 @@ BuildUI = function()
                                                 end
                                             end
                                             
-                                            -- Teleport to rainbow machine if needed
                                             local character = LocalPlayer.Character
                                             if character and character:FindFirstChild("HumanoidRootPart") then
-                                                local island = workspace:FindFirstChild("Island")
-                                                if island then
-                                                    local heavenFolder = island:FindFirstChild("Heaven")
+                                                local map = workspace:FindFirstChild("Map")
+                                                if map then
+                                                    local heavenFolder = map:FindFirstChild("Heaven")
                                                     if heavenFolder then
-                                                        local children = heavenFolder:GetChildren()
-                                                        -- Find the Rainbow part in any child model
                                                         local rainbowPart = nil
-                                                        for _, child in ipairs(children) do
-                                                            if child:IsA("Model") or child:IsA("Folder") then
-                                                                local foundRainbow = child:FindFirstChild("Rainbow")
-                                                                if foundRainbow then
-                                                                    rainbowPart = foundRainbow
-                                                                    break
-                                                                end
+                                                        
+                                                        for _, descendant in ipairs(heavenFolder:GetDescendants()) do
+                                                            if descendant.Name == "Rainbow" and (descendant:IsA("BasePart") or descendant:IsA("Model")) then
+                                                                rainbowPart = descendant
+                                                                break
                                                             end
                                                         end
                                                         
                                                         if rainbowPart then
-                                                            local targetPos = rainbowPart.CFrame.Position
-                                                            local currentPos = character.HumanoidRootPart.Position
-                                                            local xDiff = math.abs(currentPos.X - targetPos.X)
-                                                            local zDiff = math.abs(currentPos.Z - targetPos.Z)
+                                                            local targetCFrame
+                                                            if rainbowPart:IsA("BasePart") then
+                                                                targetCFrame = rainbowPart.CFrame
+                                                            elseif rainbowPart:IsA("Model") and rainbowPart.PrimaryPart then
+                                                                targetCFrame = rainbowPart:GetPivot()
+                                                            elseif rainbowPart:IsA("Model") then
+                                                                local firstPart = rainbowPart:FindFirstChildWhichIsA("BasePart", true)
+                                                                if firstPart then
+                                                                    targetCFrame = firstPart.CFrame
+                                                                end
+                                                            end
                                                             
-                                                            if not hasMovedToMachine or xDiff > 5 or zDiff > 5 then
-                                                                pcall(function()
-                                                                    character:PivotTo(rainbowPart.CFrame + Vector3.new(0, 3, 0))
-                                                                end)
-                                                                hasMovedToMachine = true
-                                                                task.wait(0.5)
+                                                            if targetCFrame then
+                                                                local targetPos = targetCFrame.Position
+                                                                local currentPos = character.HumanoidRootPart.Position
+                                                                local xDiff = math.abs(currentPos.X - targetPos.X)
+                                                                local zDiff = math.abs(currentPos.Z - targetPos.Z)
+                                                                
+                                                                if not hasMovedToMachine or xDiff > 5 or zDiff > 5 then
+                                                                    pcall(function()
+                                                                        character:PivotTo(targetCFrame + Vector3.new(0, 3, 0))
+                                                                    end)
+                                                                    hasMovedToMachine = true
+                                                                    task.wait(0.5)
+                                                                end
                                                             end
                                                         end
                                                     end
@@ -1285,7 +1278,6 @@ BuildUI = function()
                         
                         updateRainbowStatus()
                         
-                        -- Return to original position after full cycle
                         if originalCFrame then
                             local character = LocalPlayer.Character
                             if character and character:FindFirstChild("HumanoidRootPart") then
@@ -1299,7 +1291,6 @@ BuildUI = function()
                         task.wait(5)
                     end
                     
-                    -- Return to original position when toggle is disabled
                     if originalCFrame then
                         local character = LocalPlayer.Character
                         if character and character:FindFirstChild("HumanoidRootPart") then
@@ -1312,7 +1303,6 @@ BuildUI = function()
             end
         end
     })
-
 
     RainbowSection:AddParagraph("RainbowInfo",{
         Title = "Note",
