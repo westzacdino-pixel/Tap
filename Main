@@ -1783,6 +1783,73 @@ BuildUI = function()
     })
 
 
+    local AutoBuyPotionsSection = Tabs.Misc:AddSection("Auto Buy Potions")
+
+    local selectedPotionAmounts = {}
+    local autoBuyPotionsEnabled = false
+    local autoBuyPotionsThread = nil
+
+    local PotionAmountsDropdown = AutoBuyPotionsSection:Dropdown("PotionAmounts", {
+        Title = "Select Amounts",
+        Values = {"1x", "3x", "10x"},
+        Multi = true,
+        Default = {},
+        Callback = function(value)
+            selectedPotionAmounts = {}
+            
+            if type(value) == "table" then
+                for amountStr, isSelected in pairs(value) do
+                    if isSelected then
+                        -- Extract the number from "1x", "3x", "10x"
+                        local amount = tonumber(amountStr:match("(%d+)x"))
+                        if amount then
+                            table.insert(selectedPotionAmounts, amount)
+                        end
+                    end
+                end
+                
+                -- Sort amounts (1x, then 3x, then 10x)
+                table.sort(selectedPotionAmounts)
+            end
+        end
+    })
+
+    local AutoBuyPotionsToggle = AutoBuyPotionsSection:AddToggle("AutoBuyPotions", {
+        Title = "Auto Buy Potions",
+        Default = false,
+        Callback = function(Value)
+            autoBuyPotionsEnabled = Value
+            
+            if autoBuyPotionsThread then
+                task.cancel(autoBuyPotionsThread)
+                autoBuyPotionsThread = nil
+            end
+            
+            if Value then
+                autoBuyPotionsThread = task.spawn(function()
+                    local Network = require(ReplicatedStorage.Modules.Network)
+                    
+                    while autoBuyPotionsEnabled do
+                        -- Buy potions for each selected amount
+                        for _, amount in ipairs(selectedPotionAmounts) do
+                            if autoBuyPotionsEnabled then
+                                pcall(function()
+                                    Network:InvokeServer("BuyPotionMachine", amount)
+                                end)
+                                task.wait(1) -- 1 second between each purchase
+                            end
+                        end
+                        
+                        -- Wait 5 seconds before next cycle
+                        task.wait(5)
+                    end
+                end)
+            end
+        end
+    })
+
+
+
     local AutoUseBoostsSection = Tabs.Misc:AddSection("Auto Use Boosts")
 
     local Boosts = require(ReplicatedStorage.Game.Boosts)
@@ -2043,18 +2110,39 @@ BuildUI = function()
                             -- Get current pet data
                             local petDataTable = ReplicationModule.Data.Pets
                             
-                            -- Process all pets using SignalModule for visual updates
+                            -- First pass: Unequip pets that shouldn't be equipped
                             for petId, petData in pairs(petDataTable) do
                                 local shouldBeEquipped = bestPetIds[petId]
                                 
-                                -- Unequip pets that shouldn't be equipped
                                 if petData.Equipped and not shouldBeEquipped then
+                                    -- Send network request to unequip
+                                    pcall(function()
+                                        NetworkModule:InvokeServer("Unequip", petId)
+                                    end)
+                                    
+                                    -- Update UI
                                     SignalModule.Fire("UnequipPetUI", petId)
+                                    
+                                    task.wait(0.1)
                                 end
+                            end
+                            
+                            task.wait(0.5)
+                            
+                            -- Second pass: Equip pets that should be equipped
+                            for petId, petData in pairs(petDataTable) do
+                                local shouldBeEquipped = bestPetIds[petId]
                                 
-                                -- Equip pets that should be equipped
                                 if not petData.Equipped and shouldBeEquipped then
+                                    -- Send network request to equip
+                                    pcall(function()
+                                        NetworkModule:InvokeServer("Equip", petId)
+                                    end)
+                                    
+                                    -- Update UI
                                     SignalModule.Fire("EquipPetUI", petId)
+                                    
+                                    task.wait(0.1)
                                 end
                             end
                         end)
@@ -2065,7 +2153,7 @@ BuildUI = function()
             end
         end
     })
-
+    
     EquipBestSection:AddParagraph("EquipBestInfo", {
         Title = "Equip Best Info",
         Content = "Auto Equip Calculated Best: Calculates the mathematically best pets based on max level potential (Level 50) - so if you have a 10x pet for example thats level 1, it will find what stat it will be at level 50, and equip it if this is betetr then your equipped pets.",
