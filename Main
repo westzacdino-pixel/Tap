@@ -1957,7 +1957,6 @@ BuildUI = function()
 
     AutoEquipCalculatedBestToggle = EquipBestSection:AddToggle("AutoEquipCalculatedBest", {
         Title = "Auto Equip Calculated Best",
-        Description = "Equips your mathematically best pets every 5 seconds",
         Default = false,
         Callback = function(Value)
             autoEquipCalculatedBestEnabled = Value
